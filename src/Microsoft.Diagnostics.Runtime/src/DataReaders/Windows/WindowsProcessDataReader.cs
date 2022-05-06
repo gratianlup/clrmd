@@ -64,11 +64,29 @@ namespace Microsoft.Diagnostics.Runtime
             }
 
             using Process p = Process.GetCurrentProcess();
-            if (DataTarget.PlatformFunctions.TryGetWow64(p.Handle, out bool wow64)
-                && DataTarget.PlatformFunctions.TryGetWow64(_process, out bool targetWow64)
-                && wow64 != targetWow64)
+
+            // Starting with Windows 10, IsWow64Process2 is available, which gives precise info
+            // about both the target process and system architecture.
+            if (WindowsFunctions.TryGetWow64_2(p.Handle, out var processArch, out var nativeArch) &&
+                WindowsFunctions.TryGetWow64_2(_process, out var targetProcessArch, out var targetNativeArch))
             {
-                throw new InvalidOperationException("Mismatched architecture between this process and the target process.");
+                if(processArch != targetProcessArch)
+                {
+                    throw new InvalidOperationException("Mismatched architecture between this process and the target process.");
+                }
+
+                // Target arch. being unknown means it's not runnig under Wow and matches the system arch.
+                Architecture = targetProcessArch != Architecture.Unknown ? targetProcessArch : nativeArch;
+            }
+            else {
+                if (DataTarget.PlatformFunctions.TryGetWow64(p.Handle, out bool wow64)
+                      && DataTarget.PlatformFunctions.TryGetWow64(_process, out bool targetWow64)
+                      && (wow64 != targetWow64))
+                {
+                    throw new InvalidOperationException("Mismatched architecture between this process and the target process.");
+                }
+
+                Architecture = IntPtr.Size == 4 ? Architecture.X86 : Architecture.Amd64;
             }
 
             if (mode == WindowsProcessDataReaderMode.Suspend)
@@ -133,7 +151,7 @@ namespace Microsoft.Diagnostics.Runtime
         {
         }
 
-        public Architecture Architecture => IntPtr.Size == 4 ? Architecture.X86 : Architecture.Amd64;
+        public Architecture Architecture { get; }
 
         public IEnumerable<ModuleInfo> EnumerateModules()
         {

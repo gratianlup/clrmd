@@ -136,6 +136,10 @@ namespace Microsoft.Diagnostics.Runtime.Utilities
             [return: MarshalAs(UnmanagedType.Bool)]
             public static extern bool IsWow64Process(IntPtr hProcess, out bool isWow64);
 
+            [DllImport(Kernel32LibraryName)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool IsWow64Process2(IntPtr hProcess, out ushort pProcessMachine, out ushort pNativeMachine);
+
             [DllImport(VersionLibraryName, CharSet = CharSet.Unicode, EntryPoint = "GetFileVersionInfoW")]
             public static extern bool GetFileVersionInfo(string sFileName, int handle, int size, byte* infoBuffer);
 
@@ -159,6 +163,38 @@ namespace Microsoft.Diagnostics.Runtime.Utilities
 
             result = false;
             return false;
+        }
+
+        internal static bool TryGetWow64_2(IntPtr proc, out Architecture processArch, out Architecture nativeArch)
+        {
+            // IsWow64Process2 is available starting with Windows 10 1551 (build 10586).
+            if (Environment.OSVersion.Version.Major > 10 ||
+               (Environment.OSVersion.Version.Major == 10 &&
+                Environment.OSVersion.Version.Build >= 10586))
+            {
+                if(NativeMethods.IsWow64Process2(proc, out var proccessMachine, out var nativeMachine))
+                {
+                    processArch = FromImageFileMachine(proccessMachine);
+                    nativeArch = FromImageFileMachine(nativeMachine);
+                    return true;
+                }
+            }
+
+            processArch = Architecture.Unknown;
+            nativeArch = Architecture.Unknown;
+            return false;
+        }
+
+        private static Architecture FromImageFileMachine(ushort value)
+        {
+            return value switch
+            {
+                0x014c => Architecture.X86,
+                0x8664 => Architecture.Amd64,
+                0xAA64 => Architecture.Arm64,
+                0x01c0 => Architecture.Arm,
+                _ => Architecture.Unknown
+            };
         }
     }
 }
